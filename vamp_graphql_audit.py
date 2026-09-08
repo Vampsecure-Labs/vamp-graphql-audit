@@ -72,7 +72,7 @@ except ImportError:
 # =============================================================================
 
 TOOL_NAME  = "vamp-graphql-audit"
-VERSION    = "1.0.0"
+VERSION    = "1.1.0"
 USER_AGENT = f"VampSecureLabs/{VERSION} ({TOOL_NAME})"
 
 # Tiempo máximo (segundos) para considerar una query como DoS
@@ -155,15 +155,14 @@ DANGEROUS_MUTATION_NAMES = [
 # =============================================================================
 
 BANNER = r"""
- __   ___   __  __  ___     ___ ___  ___  ___ _  _ _  _
- \ \ / /_\ |  \/  || _ \   / __| _ \| _ \| _ \ || | \| |
-  \ V / _ \| |\/| ||  _/  | (_ |   /|  _/|  _/ __ | .` |
-   \_/_/ \_\_|  |_||_|     \___|_|_\|_|  |_| |_||_|_|\_|
-
-        +-+-+-+-+-+-+-+-+-+ +-+-+-+-+-+-+
-        |G|r|a|p|h|Q|L| |A|u|d|i|t|o|r|
-        +-+-+-+-+-+-+-+-+-+ +-+-+-+-+-+-+
-              by VampSecure Studios
+  ____   ____    _    __  __ ____  _____ ____ _   _ ____  _____   _        _    ____ ____
+ \ \ / / _  |  / \  |  \/  |  _ \/ ____/ ___| | | |  _ \| ____| | |      / \  | __ ) ___|
+  \ V / (_| | / _ \ | |\/| | |_) \___ \| |___| | | | |_) |  _|   | |     / _ \ |  _ \___ \
+   | |  \__, |/ ___ \| |  | |  __/ ___) |___  | |_| |  _ <| |___  | |___ / ___ \| |_) |__) |
+   |_|     /_/_/   \_|_|  |_|_|   |____/\____|\___/|_| \_|_____| |_____/_/   \_|____/____/
+     by Antonio Hernandez "Belky" — VampSecure Studios · vamp-graphql-audit v1.1 · GraphQL Security Auditor
+     ─────────────────────────────────────────────────────────────────────────────────────────
+     USO EXCLUSIVO EN AUDITORÍAS AUTORIZADAS · El uso no autorizado es ilegal
 """
 
 console = Console(highlight=False)
