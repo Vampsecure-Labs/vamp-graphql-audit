@@ -1,0 +1,36 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.backends.legacy:build"
+
+[project]
+name = "vamp-graphql-audit"
+version = "1.1.1"
+description = "GraphQL endpoint security auditor for authorized penetration tests"
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.9"
+authors = [{ name = "VampSecure Studios", email = "contact@vampsecurestudios.com" }]
+keywords = ["security", "pentest", "audit", "cybersecurity", "vampsecure", "graphql", "api", "introspection", "web-security"]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Environment :: Console",
+    "Intended Audience :: Information Technology",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Topic :: Security",
+]
+dependencies = [
+    "rich>=13.7.0",
+]
+
+
+[project.scripts]
+vamp-graphql-audit = "vamp_graphql_audit:main"
+
+[project.urls]
+Homepage = "https://github.com/Vampsecure-Labs/vamp-graphql-audit"
+Repository = "https://github.com/Vampsecure-Labs/vamp-graphql-audit"
+
+[tool.setuptools]
+py-modules = ["vamp_graphql_audit"]
