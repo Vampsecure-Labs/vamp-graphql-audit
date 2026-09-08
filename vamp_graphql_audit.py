@@ -72,7 +72,7 @@ except ImportError:
 # =============================================================================
 
 TOOL_NAME  = "vamp-graphql-audit"
-VERSION    = "1.1.0"
+VERSION    = "1.1.1"
 USER_AGENT = f"VampSecureLabs/{VERSION} ({TOOL_NAME})"
 
 # Tiempo máximo (segundos) para considerar una query como DoS
@@ -160,7 +160,7 @@ BANNER = r"""
   \ V / (_| | / _ \ | |\/| | |_) \___ \| |___| | | | |_) |  _|   | |     / _ \ |  _ \___ \
    | |  \__, |/ ___ \| |  | |  __/ ___) |___  | |_| |  _ <| |___  | |___ / ___ \| |_) |__) |
    |_|     /_/_/   \_|_|  |_|_|   |____/\____|\___/|_| \_|_____| |_____/_/   \_|____/____/
-     by Antonio Hernandez "Belky" — VampSecure Studios · vamp-graphql-audit v1.1 · GraphQL Security Auditor
+     by Antonio Hernandez "Belky" — VampSecure Studios · vamp-graphql-audit v1.1.1 · GraphQL Security Auditor
      ─────────────────────────────────────────────────────────────────────────────────────────
      USO EXCLUSIVO EN AUDITORÍAS AUTORIZADAS · El uso no autorizado es ilegal
 """
@@ -1874,10 +1874,9 @@ async def main_async() -> int:
     ejecuta todas las fases y genera informes.
     Devuelve el exit code numérico.
     """
-    args = parse_args()
-
-    # Mostrar banner
+    # Mostrar banner antes de parsear args para que salga aunque falten argumentos
     console.print(f"[bold magenta]{BANNER}[/]")
+    args = parse_args()
     console.print(
         Panel(
             f"[bold]Target:[/] {args.target}\n"
