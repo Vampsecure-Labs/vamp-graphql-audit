@@ -1,0 +1,2 @@
+[console_scripts]
+vamp-graphql-audit = vamp_graphql_audit:main

@@ -72,7 +72,7 @@ except ImportError:
 # =============================================================================
 
 TOOL_NAME  = "vamp-graphql-audit"
-VERSION    = "1.3.0"
+VERSION    = "1.4.0"
 USER_AGENT = f"VampSecureLabs/{VERSION} ({TOOL_NAME})"
 
 # Tiempo máximo (segundos) para considerar una query como DoS
@@ -160,7 +160,7 @@ __   ___   __  __ ___  ___ ___ ___ _   _ ___ ___ _      _   ___ ___
  \ V / _ \| |\/| |  _/\__ \ _| (__| |_| |   / _|| |__ / _ \| _ \__ \
   \_/_/ \_\_|  |_|_|  |___/___\___|\___/|_|_\___|____/_/ \_\___/___/
   by Antonio Hernandez "Belky" — VampSecure Studios
-  vamp-graphql-audit v1.3.0 · GraphQL Security Auditor
+  vamp-graphql-audit v1.4.0 · GraphQL Security Auditor
   ────────────────────────────────────────────────────────────────────────
   USO EXCLUSIVO EN AUDITORÍAS AUTORIZADAS · El uso no autorizado es ilegal
 """
@@ -1391,24 +1391,21 @@ class GraphQLAuditor:
     # -------------------------------------------------------------------------
 
     # -------------------------------------------------------------------------
-    # Fase 7: Persisted Queries (APQ) — abuso y bypass
+    # Fase 7: Persisted Queries (APQ) — métodos auxiliares y orquestador
     # -------------------------------------------------------------------------
 
-    async def audit_persisted_queries(self) -> None:
+    async def _test_apq(self, url: str, headers: Dict, findings: List) -> None:
         """
-        FASE 7: Prueba si el endpoint acepta Automatic Persisted Queries (APQ).
+        Testea si el endpoint soporta APQ enviando un hash inválido sin cuerpo de query.
 
-        Envía un request con extensiones APQ pero sin body de query:
-          · Si el servidor responde con 'PersistedQueryNotFound' → APQ habilitado (INFO/MEDIUM)
-          · Si el servidor ejecuta queries arbitrarias por hash → CRITICAL (bypass de controles)
+        Resultados posibles:
+          · PersistedQueryNotFound → HIGH: APQ habilitadas, posible cache poisoning
+          · 200 con datos          → HIGH: APQ aceptan hash desconocido (bypass)
+          · Otro error             → INFO: APQ posiblemente no soportadas
         """
-        console.rule("[bold magenta]FASE 7 — Persisted Queries (APQ)[/]")
-        self._info("Probando soporte de Automatic Persisted Queries (APQ)...")
-
-        # Hash inválido para provocar 'PersistedQueryNotFound'
-        hash_invalido = "a" * 64  # SHA-256 hex falso (todo 'a')
-
-        payload_apq = {
+        # Hash SHA-256 hexadecimal inválido (64 'a') para provocar PersistedQueryNotFound
+        hash_invalido = "a" * 64
+        payload = {
             "extensions": {
                 "persistedQuery": {
                     "version": 1,
@@ -1416,86 +1413,111 @@ class GraphQLAuditor:
                 }
             }
         }
-
-        # Enviar sin campo 'query' — solo extensions
         try:
             async with aiohttp.ClientSession(
-                headers=self.client.headers,
+                headers=headers,
                 timeout=self.client.timeout,
                 connector=aiohttp.TCPConnector(ssl=False),
             ) as session:
-                async with session.post(self.client.url, json=payload_apq) as resp:
+                async with session.post(url, json=payload) as resp:
                     texto = await resp.text()
                     try:
-                        data_apq = json.loads(texto)
+                        data = json.loads(texto)
                     except json.JSONDecodeError:
-                        self._info("APQ: respuesta no-JSON — endpoint probablemente no soporta APQ.")
+                        # Respuesta no-JSON: APQ probablemente no soportado
+                        findings.append(Finding(
+                            tool=TOOL_NAME, severity="INFO", phase=7,
+                            type="APQ Not Supported",
+                            title="APQ posiblemente no soportadas",
+                            description=(
+                                "El endpoint devolvió una respuesta no-JSON ante una petición APQ "
+                                "— probablemente APQ no está habilitado en este servidor."
+                            ),
+                            affected=url,
+                            recommendation="No se requiere acción.",
+                        ))
                         return
         except Exception as exc:
-            self._info(f"APQ: error de conexión — {exc}")
+            self._info(f"_test_apq: error de conexión — {exc}")
             return
 
-        errors = data_apq.get("errors", [])
-        error_messages = " ".join(
-            str(e.get("message", "")) for e in errors
-        ).lower() if errors else ""
+        errors       = data.get("errors", [])
+        mensajes     = " ".join(str(e.get("message", "")) for e in errors).lower()
+        apq_not_found = (
+            "persistedquerynotfound" in mensajes
+            or "persisted query" in mensajes
+        )
 
-        apq_habilitado = "persistedquerynotfound" in error_messages or "persisted query" in error_messages
+        if apq_not_found:
+            # PersistedQueryNotFound confirma que APQ está activo
+            findings.append(Finding(
+                tool=TOOL_NAME, severity="HIGH", phase=7,
+                type="APQ Enabled — PersistedQueryNotFound",
+                title="APQ habilitadas — posible cache poisoning o replay de queries privadas",
+                description=(
+                    "El endpoint responde con 'PersistedQueryNotFound' ante un hash APQ "
+                    "desconocido, confirmando que Automatic Persisted Queries está habilitado. "
+                    "Un atacante puede:\n"
+                    "  · Intentar reproducir hashes de queries privilegiadas mediante fuerza bruta\n"
+                    "  · Envenenar la caché APQ para alterar respuestas (cache poisoning)\n"
+                    "  · Enumerar queries registradas si el servidor es verbose"
+                ),
+                affected=url,
+                recommendation=(
+                    "Deshabilitar APQ si no se necesita en producción. "
+                    "Apollo Server: persistedQueries: false. "
+                    "Si se usa APQ, proteger el registro de queries con autenticación "
+                    "y limitar el número de queries registrables por cliente/IP."
+                ),
+                evidence=f"Payload hash inválido ('aaa...') → respuesta: {texto[:400]}",
+            ))
+        elif data.get("data") is not None and not errors:
+            # El servidor ejecutó algo con un hash inválido — bypass de controles
+            findings.append(Finding(
+                tool=TOOL_NAME, severity="HIGH", phase=7,
+                type="APQ Hash Bypass",
+                title="APQ habilitadas y aceptando hash desconocido",
+                description=(
+                    "El servidor aceptó y ejecutó una query mediante un hash APQ inválido "
+                    "sin requerir el cuerpo de la query. Esto puede permitir saltarse "
+                    "controles de whitelist de queries o la desactivación de introspección "
+                    "si el servidor no valida correctamente los hashes antes de ejecutar."
+                ),
+                affected=url,
+                recommendation=(
+                    "Validar que los hashes APQ corresponden a queries previamente registradas. "
+                    "Implementar una lista blanca de hashes en producción. "
+                    "No ejecutar queries basándose únicamente en un hash no verificado."
+                ),
+                evidence=f"Hash inválido aceptado → datos devueltos: {texto[:300]}",
+            ))
+        else:
+            # Respuesta diferente: APQ probablemente no soportado
+            findings.append(Finding(
+                tool=TOOL_NAME, severity="INFO", phase=7,
+                type="APQ Not Supported",
+                title="APQ posiblemente no soportadas",
+                description=(
+                    "El endpoint no respondió con 'PersistedQueryNotFound' ante un hash APQ "
+                    "desconocido y tampoco devolvió datos. APQ probablemente no está habilitado."
+                ),
+                affected=url,
+                recommendation="No se requiere acción.",
+            ))
 
-        if not apq_habilitado:
-            # Comprobar si el servidor ejecutó algo con el hash inválido (bypass)
-            if data_apq.get("data") is not None and not errors:
-                self._add(Finding(
-                    tool=TOOL_NAME, severity="CRITICAL", phase=7,
-                    type="APQ Hash Bypass",
-                    title="APQ ejecuta queries arbitrarias por hash — bypass de controles",
-                    description=(
-                        "El servidor aceptó y ejecutó una query mediante un hash APQ inválido "
-                        "sin requerir el cuerpo de la query. Esto puede permitir saltarse "
-                        "la desactivación de introspección o listas blancas de queries, "
-                        "si el servidor confía en los hashes sin validarlos correctamente."
-                    ),
-                    affected=self.client.url,
-                    recommendation=(
-                        "Validar que los hashes APQ corresponden a queries previamente registradas. "
-                        "No ejecutar queries basándose únicamente en un hash no verificado. "
-                        "Implementar una lista blanca de hashes en producción."
-                    ),
-                    evidence=f"Payload: {json.dumps(payload_apq)} → Respuesta: {texto[:300]}",
-                ))
-            else:
-                self._info("APQ: endpoint no responde con 'PersistedQueryNotFound' — APQ probablemente no habilitado.")
-            return
+    async def _test_apq_store_and_retrieve(self, url: str, headers: Dict, findings: List) -> None:
+        """
+        Prueba el ciclo completo APQ: almacenar una query enviando query+hash real,
+        luego recuperarla usando únicamente el hash.
 
-        # APQ habilitado — finding informativo (puede escalar si se combina con otros vectores)
-        self._add(Finding(
-            tool=TOOL_NAME, severity="MEDIUM", phase=7,
-            type="APQ Enabled",
-            title="Automatic Persisted Queries (APQ) habilitado",
-            description=(
-                "El endpoint responde con 'PersistedQueryNotFound' al recibir un hash APQ desconocido, "
-                "lo que confirma que APQ está habilitado. "
-                "APQ en sí no es una vulnerabilidad, pero puede facilitar:\n"
-                "  · Enumeración de queries registradas si el endpoint es verbose\n"
-                "  · Bypass de mecanismos de introspección deshabilitada si las queries "
-                "    se cachean sin autenticación\n"
-                "  · Ataques de DoS si no hay límite en el número de queries registrables"
-            ),
-            affected=self.client.url,
-            recommendation=(
-                "Asegurarse de que APQ requiere autenticación para registrar nuevas queries. "
-                "Implementar un límite en el número de queries persistibles por cliente/IP. "
-                "Si no se necesita APQ en producción, desactivarlo. "
-                "Apollo Server: persistedQueries: false en las opciones del plugin."
-            ),
-            evidence=f"Respuesta APQ hash inválido: {texto[:500]}",
-        ))
+        Si el servidor devuelve datos con solo el hash → MEDIUM.
+        """
+        import hashlib as _hashlib
+        query_test = TYPENAME_QUERY
+        hash_real  = _hashlib.sha256(query_test.encode()).hexdigest()
 
-        # Prueba adicional: intentar registrar y ejecutar una query real
-        # Enviar el hash + el cuerpo de la query para ver si el servidor la acepta
-        query_test   = TYPENAME_QUERY
-        hash_real    = __import__("hashlib").sha256(query_test.encode()).hexdigest()
-        payload_reg  = {
+        # Paso 1: almacenar — enviar body de query + extensions con hash real
+        payload_registro = {
             "query": query_test,
             "extensions": {
                 "persistedQuery": {
@@ -1504,50 +1526,83 @@ class GraphQLAuditor:
                 }
             }
         }
-        data_reg, err_reg = await self.client.query(query_test)
-        if not err_reg and data_reg and data_reg.get("data"):
-            # Ahora intentar ejecutar usando solo el hash (sin query body)
-            payload_solo_hash = {
-                "extensions": {
-                    "persistedQuery": {
-                        "version": 1,
-                        "sha256Hash": hash_real,
+
+        try:
+            async with aiohttp.ClientSession(
+                headers=headers,
+                timeout=self.client.timeout,
+                connector=aiohttp.TCPConnector(ssl=False),
+            ) as session:
+                async with session.post(url, json=payload_registro) as resp_reg:
+                    texto_reg = await resp_reg.text()
+                    try:
+                        data_reg = json.loads(texto_reg)
+                    except json.JSONDecodeError:
+                        return  # No se pudo registrar
+
+                # Si el registro no devolvió datos, no tiene sentido intentar la recuperación
+                if not data_reg.get("data"):
+                    return
+
+                # Paso 2: recuperar usando solo el hash (sin cuerpo de query)
+                payload_solo_hash = {
+                    "extensions": {
+                        "persistedQuery": {
+                            "version": 1,
+                            "sha256Hash": hash_real,
+                        }
                     }
                 }
-            }
-            try:
-                async with aiohttp.ClientSession(
-                    headers=self.client.headers,
-                    timeout=self.client.timeout,
-                    connector=aiohttp.TCPConnector(ssl=False),
-                ) as session:
-                    async with session.post(self.client.url, json=payload_solo_hash) as resp2:
-                        texto2 = await resp2.text()
-                        try:
-                            data2 = json.loads(texto2)
-                        except json.JSONDecodeError:
-                            data2 = {}
-                if data2.get("data") is not None:
-                    self._add(Finding(
+                async with session.post(url, json=payload_solo_hash) as resp_ret:
+                    texto_ret = await resp_ret.text()
+                    try:
+                        data_ret = json.loads(texto_ret)
+                    except json.JSONDecodeError:
+                        return
+
+                if data_ret.get("data") is not None:
+                    findings.append(Finding(
                         tool=TOOL_NAME, severity="MEDIUM", phase=7,
-                        type="APQ Query Execution by Hash",
-                        title="APQ ejecuta queries registradas sin cuerpo (solo hash)",
+                        type="APQ Store and Retrieve",
+                        title="APQ store-and-retrieve funciona — verificar que no expone queries privilegiadas",
                         description=(
-                            "El servidor acepta ejecutar una query previamente registrada "
-                            "usando únicamente su hash SHA-256, sin necesidad de enviar "
-                            "el cuerpo de la query. Esto es el comportamiento esperado de APQ, "
-                            "pero confirma que el servidor es susceptible a enumeración de "
-                            "hashes de queries conocidas si no se controla el acceso."
+                            "El servidor permite almacenar una query GraphQL mediante su hash SHA-256 "
+                            "y recuperarla usando únicamente el hash, sin necesidad de reenviar el cuerpo. "
+                            "Este es el comportamiento estándar de APQ, pero puede facilitar:\n"
+                            "  · Enumeración de queries registradas si no se controla el acceso\n"
+                            "  · Caché de queries privilegiadas accesibles sin autenticación por usuario"
                         ),
-                        affected=self.client.url,
+                        affected=url,
                         recommendation=(
-                            "Asegurarse de que el registro de APQ está protegido por autenticación. "
-                            "Considerar una lista blanca de hashes permitidos (no dinámica)."
+                            "Proteger el registro de APQ con autenticación. "
+                            "Considerar una lista blanca de hashes fija (no dinámica). "
+                            "Verificar que las queries privilegiadas no queden cacheadas "
+                            "sin contexto de usuario/sesión."
                         ),
-                        evidence=f"Hash: {hash_real} → {texto2[:300]}",
+                        evidence=(
+                            f"Hash SHA-256: {hash_real[:16]}… "
+                            f"→ registro OK (query+hash) "
+                            f"→ recuperación OK (solo hash): {texto_ret[:200]}"
+                        ),
                     ))
-            except Exception:
-                pass
+        except Exception as exc:
+            self._info(f"_test_apq_store_and_retrieve: error — {exc}")
+
+    async def audit_persisted_queries(self) -> None:
+        """
+        FASE 7: Prueba soporte de Automatic Persisted Queries (APQ).
+
+        Delega en _test_apq (hash inválido sin query) y
+        _test_apq_store_and_retrieve (ciclo completo registro+recuperación).
+        """
+        console.rule("[bold magenta]FASE 7 — Persisted Queries (APQ)[/]")
+        self._info("Probando soporte de Automatic Persisted Queries (APQ)...")
+
+        # Prueba 1: enviar hash inválido sin cuerpo de query
+        await self._test_apq(self.client.url, self.client.headers, self.findings)
+
+        # Prueba 2: ciclo completo de almacenamiento y recuperación por hash
+        await self._test_apq_store_and_retrieve(self.client.url, self.client.headers, self.findings)
 
     # -------------------------------------------------------------------------
     # Fase 8: Batching abuse — DoS y bypass de rate limiting

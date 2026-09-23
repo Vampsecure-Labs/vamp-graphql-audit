@@ -1,0 +1,10 @@
+LICENSE
+README.md
+pyproject.toml
+vamp_graphql_audit.py
+vamp_graphql_audit.egg-info/PKG-INFO
+vamp_graphql_audit.egg-info/SOURCES.txt
+vamp_graphql_audit.egg-info/dependency_links.txt
+vamp_graphql_audit.egg-info/entry_points.txt
+vamp_graphql_audit.egg-info/requires.txt
+vamp_graphql_audit.egg-info/top_level.txt
