@@ -1,3 +1,4 @@
+<!-- © VampSecure Studios — VampSecure Labs Security Research Division -->
 <h1 align="center">vamp-graphql-audit</h1>
 
 <p align="center">
@@ -22,9 +23,17 @@ It generates professional reports in rich console output, JSON, and a self-conta
 - **Phase 5 — Injection Testing**: SQL injection via error-response analysis, NoSQL operator injection via GraphQL variables, SSTI detection by evaluating `{{7*7}}` markers in response, Reflected XSS via GraphQL string arguments.
 - **Phase 6 — Subscription & Mutation Security**: HTTP vs HTTPS check, subscription authentication advisory, rate-limiting absence on auth mutations (login, register…), credential-change mutations without current-password confirmation, token return types over unencrypted HTTP.
 
-## Requirements
+## Instalación
 
-- Python 3.11 or later
+```bash
+pip install vamp-graphql-audit
+# o con Homebrew:
+brew install vampsecure-labs/labs/vamp-graphql-audit
+```
+
+## Requisitos
+
+- Python 3.11+
 - `aiohttp >= 3.9.0`
 - `rich >= 13.7.0`
 
@@ -79,3 +88,8 @@ python3 vamp_graphql_audit.py \
 ## Disclaimer
 
 Esta herramienta es exclusiva para auditorías de seguridad autorizadas. El uso contra sistemas sin autorización escrita del propietario es ilegal. VampSecure Studios no asume responsabilidad por usos indebidos.
+
+---
+
+## Versión
+v1.4.0 — VampSecure Labs Security Research Division
