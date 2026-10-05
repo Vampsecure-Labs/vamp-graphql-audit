@@ -6,16 +6,16 @@ Utiliza mocks de aiohttp para simular servidores GraphQL sin necesitar
 infraestructura real. Verifica la detección end-to-end de vulnerabilidades.
 """
 
-import pytest
 import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import vamp_graphql_audit as gql
-from vamp_graphql_audit import (
-    GraphQLClient, GraphQLAuditor, Finding,
-    INTROSPECTION_QUERY, TYPENAME_QUERY, BATCH_QUERY_COUNT,
-)
+import pytest
 
+from vamp_graphql_audit import (
+    BATCH_QUERY_COUNT,
+    GraphQLAuditor,
+    GraphQLClient,
+)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Mock de aiohttp reutilizable

@@ -9,11 +9,10 @@ import sys
 # Añadir el directorio padre al path para importar el módulo bajo prueba
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+
 import pytest
-from unittest.mock import AsyncMock, MagicMock
 
 import vamp_graphql_audit as gql
-
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Fixtures de datos de schema GraphQL

@@ -39,6 +39,8 @@ Exit codes
 # IMPORTACIONES
 # =============================================================================
 
+from __future__ import annotations
+
 import argparse
 import asyncio
 import json
@@ -48,7 +50,7 @@ import time
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 from urllib.parse import urlparse
 
 try:
@@ -58,11 +60,11 @@ except ImportError:
     sys.exit(2)
 
 try:
+    from rich import box
     from rich.console import Console
     from rich.panel import Panel
     from rich.table import Table
     from rich.text import Text
-    from rich import box
 except ImportError:
     print("[ERROR] Instala rich: pip install rich>=13.7.0", file=sys.stderr)
     sys.exit(2)
@@ -88,7 +90,7 @@ BATCH_QUERY_COUNT = 50
 SEVERITIES = ["CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO"]
 
 # Paleta de colores Rich por severidad
-SEV_COLOR: Dict[str, str] = {
+SEV_COLOR: dict[str, str] = {
     "CRITICAL": "bold red",
     "HIGH":     "bold orange3",
     "MEDIUM":   "bold yellow",
@@ -181,10 +183,10 @@ class Finding:
     description:    str                       # Descripción detallada
     affected:       str                       # Recurso/endpoint/campo afectado
     recommendation: str                       # Medida de remediación recomendada
-    evidence:       Optional[str] = None      # Payload o respuesta que evidencia el hallazgo
+    evidence:       str | None = None      # Payload o respuesta que evidencia el hallazgo
     phase:          int           = 0         # Fase de la auditoría que lo detectó
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         """Serializa el finding a diccionario JSON-exportable."""
         return {
             "tool":           self.tool,
@@ -202,12 +204,12 @@ class Finding:
 @dataclass
 class SchemaInfo:
     """Resumen del schema GraphQL descubierto durante la introspección."""
-    types:         List[str]       = field(default_factory=list)
-    queries:       List[str]       = field(default_factory=list)
-    mutations:     List[str]       = field(default_factory=list)
-    subscriptions: List[str]       = field(default_factory=list)
-    sensitive_fields: List[str]    = field(default_factory=list)
-    raw_schema:    Optional[Dict]  = None
+    types:         list[str]       = field(default_factory=list)
+    queries:       list[str]       = field(default_factory=list)
+    mutations:     list[str]       = field(default_factory=list)
+    subscriptions: list[str]       = field(default_factory=list)
+    sensitive_fields: list[str]    = field(default_factory=list)
+    raw_schema:    dict | None  = None
 
 
 # =============================================================================
@@ -281,7 +283,7 @@ class GraphQLClient:
     def __init__(
         self,
         url: str,
-        headers: Dict[str, str],
+        headers: dict[str, str],
         timeout: float = 30.0,
     ):
         self.url     = url
@@ -296,9 +298,9 @@ class GraphQLClient:
     async def query(
         self,
         gql: str,
-        variables: Optional[Dict] = None,
-        timeout_override: Optional[float] = None,
-    ) -> Tuple[Optional[Dict], Optional[str]]:
+        variables: dict | None = None,
+        timeout_override: float | None = None,
+    ) -> tuple[dict | None, str | None]:
         """
         Envía una query GraphQL y devuelve (data_dict, error_str).
         Nunca lanza excepción: los errores se devuelven como string.
@@ -318,14 +320,13 @@ class GraphQLClient:
                 headers=self.headers,
                 timeout=timeout,
                 connector=aiohttp.TCPConnector(ssl=False),
-            ) as session:
-                async with session.post(self.url, json=payload) as resp:
-                    text = await resp.text()
-                    try:
-                        data = json.loads(text)
-                    except json.JSONDecodeError:
-                        return None, f"Respuesta no-JSON (HTTP {resp.status}): {text[:300]}"
-                    return data, None
+            ) as session, session.post(self.url, json=payload) as resp:
+                text = await resp.text()
+                try:
+                    data = json.loads(text)
+                except json.JSONDecodeError:
+                    return None, f"Respuesta no-JSON (HTTP {resp.status}): {text[:300]}"
+                return data, None
 
         except asyncio.TimeoutError:
             return None, f"TIMEOUT tras {timeout.total}s"
@@ -336,9 +337,9 @@ class GraphQLClient:
 
     async def query_batch(
         self,
-        queries: List[str],
-        timeout_override: Optional[float] = None,
-    ) -> Tuple[Optional[Any], Optional[str]]:
+        queries: list[str],
+        timeout_override: float | None = None,
+    ) -> tuple[Any | None, str | None]:
         """
         Envía un array de queries GraphQL (batch) en una sola petición HTTP.
         Devuelve (respuesta_cruda, error_str).
@@ -354,13 +355,12 @@ class GraphQLClient:
                 headers=self.headers,
                 timeout=timeout,
                 connector=aiohttp.TCPConnector(ssl=False),
-            ) as session:
-                async with session.post(self.url, json=payload) as resp:
-                    text = await resp.text()
-                    try:
-                        return json.loads(text), None
-                    except json.JSONDecodeError:
-                        return None, f"Batch: respuesta no-JSON (HTTP {resp.status})"
+            ) as session, session.post(self.url, json=payload) as resp:
+                text = await resp.text()
+                try:
+                    return json.loads(text), None
+                except json.JSONDecodeError:
+                    return None, f"Batch: respuesta no-JSON (HTTP {resp.status})"
         except asyncio.TimeoutError:
             return None, f"Batch TIMEOUT tras {timeout.total}s"
         except Exception as exc:
@@ -387,7 +387,7 @@ class GraphQLAuditor:
     ):
         self.client:             GraphQLClient = client
         self.depth:              int           = depth
-        self.findings:           List[Finding] = []
+        self.findings:           list[Finding] = []
         self.schema_info:        SchemaInfo    = SchemaInfo()
         self.skip_hotchocolate:  bool          = skip_hotchocolate
         self.skip_apollo_depth:  bool          = skip_apollo_depth
@@ -410,7 +410,7 @@ class GraphQLAuditor:
         console.print(f"  [dim]{msg}[/]")
 
     @staticmethod
-    def _resolve_type_name(type_obj: Optional[Dict]) -> str:
+    def _resolve_type_name(type_obj: dict | None) -> str:
         """
         Navega recursivamente el objeto de tipo GraphQL y devuelve el nombre
         base del tipo (sin envolturas NON_NULL / LIST).
@@ -454,7 +454,7 @@ class GraphQLAuditor:
     # Fase 1: Introspección y reconocimiento
     # -------------------------------------------------------------------------
 
-    async def fetch_schema(self) -> Optional[Dict]:
+    async def fetch_schema(self) -> dict | None:
         """
         Ejecuta la query de introspección completa y devuelve el schema
         en formato dict, o None si la introspección está deshabilitada.
@@ -470,7 +470,7 @@ class GraphQLAuditor:
             return None
         return data.get("data", {}).get("__schema")
 
-    async def extract_queryable_fields(self, schema: Dict) -> None:
+    async def extract_queryable_fields(self, schema: dict) -> None:
         """
         Recorre el schema GraphQL y rellena self.schema_info con:
         - Tipos disponibles
@@ -487,7 +487,7 @@ class GraphQLAuditor:
 
         for t in types:
             name   = t.get("name", "")
-            kind   = t.get("kind", "")
+            t.get("kind", "")
             fields = t.get("fields") or []
 
             # Ignorar tipos internos de GraphQL
@@ -686,7 +686,7 @@ class GraphQLAuditor:
         query_type_nm = (schema.get("queryType") or {}).get("name", "Query")
         id_test_values = ["1", "2", "3", "999", "-1", "0", "admin",
                           "null", "undefined", "true"]
-        uuid_pattern = re.compile(
+        re.compile(
             r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
             re.IGNORECASE,
         )
@@ -838,7 +838,7 @@ class GraphQLAuditor:
             nested_query = f"{{ user {inner} }}"
 
         t0      = time.perf_counter()
-        data2, err2 = await self.client.query(nested_query, timeout_override=DOS_TIMEOUT_THRESHOLD + 5)
+        _data2, err2 = await self.client.query(nested_query, timeout_override=DOS_TIMEOUT_THRESHOLD + 5)
         elapsed2 = time.perf_counter() - t0
 
         if elapsed2 >= DOS_TIMEOUT_THRESHOLD:
@@ -1331,7 +1331,7 @@ class GraphQLAuditor:
                         "Añadir CAPTCHA tras intentos fallidos. "
                         "Implementar bloqueo temporal de cuenta."
                     ),
-                    evidence=f"5 peticiones enviadas → 0 respuestas de throttling",
+                    evidence="5 peticiones enviadas → 0 respuestas de throttling",
                 ))
 
         # ── 6d: Mutations peligrosas sin password de confirmación ─────────────
@@ -1394,7 +1394,7 @@ class GraphQLAuditor:
     # Fase 7: Persisted Queries (APQ) — métodos auxiliares y orquestador
     # -------------------------------------------------------------------------
 
-    async def _test_apq(self, url: str, headers: Dict, findings: List) -> None:
+    async def _test_apq(self, url: str, headers: dict, findings: list) -> None:
         """
         Testea si el endpoint soporta APQ enviando un hash inválido sin cuerpo de query.
 
@@ -1505,7 +1505,7 @@ class GraphQLAuditor:
                 recommendation="No se requiere acción.",
             ))
 
-    async def _test_apq_store_and_retrieve(self, url: str, headers: Dict, findings: List) -> None:
+    async def _test_apq_store_and_retrieve(self, url: str, headers: dict, findings: list) -> None:
         """
         Prueba el ciclo completo APQ: almacenar una query enviando query+hash real,
         luego recuperarla usando únicamente el hash.
@@ -1839,7 +1839,7 @@ class GraphQLAuditor:
 
         # Construir cadena de 15 fragmentos anidados: L1→L2→…→L15
         niveles = 15
-        partes_fragmentos: List[str] = []
+        partes_fragmentos: list[str] = []
         for i in range(1, niveles):
             partes_fragmentos.append(
                 f"fragment L{i} on Query {{ __typename ...L{i + 1} }}"
@@ -1950,19 +1950,18 @@ class GraphQLAuditor:
                 headers=cabeceras_bypass,
                 timeout=self.client.timeout,
                 connector=aiohttp.TCPConnector(ssl=False),
-            ) as session:
-                async with session.post(
-                    self.client.url,
-                    json={"query": query_hasura},
-                ) as resp:
-                    status = resp.status
-                    texto  = await resp.text()
-                    # Detectar Hasura por cabeceras de respuesta
-                    es_hasura = (
-                        "warp" in resp.headers.get("server", "").lower()
-                        or "hasura" in resp.headers.get("server", "").lower()
-                        or "hasura-cloud" in str(resp.headers).lower()
-                    )
+            ) as session, session.post(
+                self.client.url,
+                json={"query": query_hasura},
+            ) as resp:
+                status = resp.status
+                texto  = await resp.text()
+                # Detectar Hasura por cabeceras de respuesta
+                es_hasura = (
+                    "warp" in resp.headers.get("server", "").lower()
+                    or "hasura" in resp.headers.get("server", "").lower()
+                    or "hasura-cloud" in str(resp.headers).lower()
+                )
         except Exception as exc:
             self._info(f"Fase 11: error de conexión — {exc}")
             return
@@ -2009,7 +2008,7 @@ class GraphQLAuditor:
         self._add(Finding(
             tool=TOOL_NAME, severity="CRITICAL", phase=11,
             type="GQL-HASURA-001 Row-Level Permission Bypass",
-            title=f"Hasura: row-level permissions bypasseables con x-hasura-role: admin",
+            title="Hasura: row-level permissions bypasseables con x-hasura-role: admin",
             description=(
                 "El servidor aceptó la cabecera 'x-hasura-role: admin' sin requerir "
                 "'x-hasura-admin-secret' y devolvió datos de la query. "
@@ -2037,7 +2036,7 @@ class GraphQLAuditor:
     # Orquestador principal
     # -------------------------------------------------------------------------
 
-    async def run(self) -> List[Finding]:
+    async def run(self) -> list[Finding]:
         """
         Ejecuta todas las fases de auditoría en orden y devuelve
         la lista consolidada de findings.
@@ -2297,7 +2296,7 @@ class VampSecReport:
     def __init__(
         self,
         target:      str,
-        findings:    List[Finding],
+        findings:    list[Finding],
         schema_info: SchemaInfo,
     ):
         self.target      = target
@@ -2305,9 +2304,9 @@ class VampSecReport:
         self.schema_info = schema_info
         self.generated   = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-    def _counts(self) -> Dict[str, int]:
+    def _counts(self) -> dict[str, int]:
         """Cuenta findings por severidad."""
-        counts: Dict[str, int] = {s: 0 for s in SEVERITIES}
+        counts: dict[str, int] = {s: 0 for s in SEVERITIES}
         for f in self.findings:
             counts[f.severity] = counts.get(f.severity, 0) + 1
         return counts
@@ -2369,7 +2368,7 @@ class VampSecReport:
 
         rows = "\n".join(self._html_row(f) for f in sorted_findings)
 
-        def _items(lst: List[str], limit: int = 50) -> str:
+        def _items(lst: list[str], limit: int = 50) -> str:
             if not lst:
                 return "<li style='color:#555'>— ninguno —</li>"
             items = lst[:limit]
@@ -2415,7 +2414,7 @@ class VampSecReport:
 # RESUMEN EN CONSOLA
 # =============================================================================
 
-def print_summary(findings: List[Finding]) -> None:
+def print_summary(findings: list[Finding]) -> None:
     """Imprime un resumen tabular de findings en la consola."""
     console.print()
     console.rule("[bold magenta]RESUMEN DE AUDITORÍA[/]")
@@ -2538,12 +2537,12 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def parse_headers(raw: List[str]) -> Dict[str, str]:
+def parse_headers(raw: list[str]) -> dict[str, str]:
     """
     Convierte ['Key: Value', 'X-Foo: Bar'] en {'Key': 'Value', 'X-Foo': 'Bar'}.
     Ignora entradas mal formadas.
     """
-    headers: Dict[str, str] = {}
+    headers: dict[str, str] = {}
     for entry in raw:
         if ": " in entry:
             k, _, v = entry.partition(": ")

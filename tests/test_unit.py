@@ -6,16 +6,19 @@ Cubre: Finding, SchemaInfo, GraphQLAuditor (métodos síncronos y estáticos),
 constantes de configuración y lógica de detección pura sin red.
 """
 
+
 import pytest
-import asyncio
 
-import vamp_graphql_audit as gql
 from vamp_graphql_audit import (
-    Finding, SchemaInfo, GraphQLClient, GraphQLAuditor,
-    BATCH_QUERY_COUNT, DOS_TIMEOUT_THRESHOLD, SENSITIVE_FIELD_NAMES,
+    BATCH_QUERY_COUNT,
+    DOS_TIMEOUT_THRESHOLD,
+    SENSITIVE_FIELD_NAMES,
     SEVERITIES,
+    Finding,
+    GraphQLAuditor,
+    GraphQLClient,
+    SchemaInfo,
 )
-
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Tests del dataclass Finding
