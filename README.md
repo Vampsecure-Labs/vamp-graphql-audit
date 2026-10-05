@@ -6,6 +6,7 @@
   <img src="https://img.shields.io/badge/platform-linux%20%7C%20macOS-lightgrey" alt="Platform"/>
   <img src="https://img.shields.io/badge/async-aiohttp-green" alt="aiohttp"/>
   <img src="https://img.shields.io/badge/VampSecure-Labs-magenta" alt="VampSecure Labs"/>
+  <img src="https://github.com/Vampsecure-Labs/vamp-graphql-audit/actions/workflows/ci.yml/badge.svg" alt="CI"/>
 </p>
 
 ## Overview
