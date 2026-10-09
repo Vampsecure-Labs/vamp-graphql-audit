@@ -9,13 +9,18 @@
   <img src="https://github.com/Vampsecure-Labs/vamp-graphql-audit/actions/workflows/ci.yml/badge.svg" alt="CI"/>
 </p>
 
-## Overview
+> 🇬🇧 [English](#english) · 🇪🇸 [Español](#español)
+
+---
+
+<a name="english"></a>
+## 🇬🇧 English
 
 `vamp-graphql-audit` is a DAST (Dynamic Application Security Testing) tool specialized in GraphQL APIs. It performs six sequential audit phases covering the most critical GraphQL-specific attack vectors: introspection abuse, broken object-level authorization (BOLA/IDOR), rate-limit bypass via alias abuse, deep nesting DoS, information disclosure via field suggestions, injection testing (SQLi, NoSQLi, SSTI, XSS), and subscription/mutation security analysis.
 
 It generates professional reports in rich console output, JSON, and a self-contained HTML dark-theme document — ready to attach to a pentest engagement.
 
-## Features
+### Features
 
 - **Phase 1 — Introspection & Recon**: detects enabled introspection (CRITICAL), extracts full schema (queries, mutations, subscriptions, types), identifies sensitive field names (password, token, key, email…), checks for verbose error messages with stack traces or file paths, and fingerprints directives to identify framework.
 - **Phase 2 — Authorization Testing (BOLA/IDOR)**: fuzzes ID arguments (1, 2, 3, 999, -1, "admin", null…) on every query with an ID-shaped argument; flags CRITICAL when different IDs return non-null data without apparent ownership checks.
@@ -24,15 +29,15 @@ It generates professional reports in rich console output, JSON, and a self-conta
 - **Phase 5 — Injection Testing**: SQL injection via error-response analysis, NoSQL operator injection via GraphQL variables, SSTI detection by evaluating `{{7*7}}` markers in response, Reflected XSS via GraphQL string arguments.
 - **Phase 6 — Subscription & Mutation Security**: HTTP vs HTTPS check, subscription authentication advisory, rate-limiting absence on auth mutations (login, register…), credential-change mutations without current-password confirmation, token return types over unencrypted HTTP.
 
-## Instalación
+### Installation
 
 ```bash
 pip install vamp-graphql-audit
-# o con Homebrew:
+# or with Homebrew:
 brew install vampsecure-labs/labs/vamp-graphql-audit
 ```
 
-## Requisitos
+### Requirements
 
 - Python 3.11+
 - `aiohttp >= 3.9.0`
@@ -42,54 +47,54 @@ brew install vampsecure-labs/labs/vamp-graphql-audit
 pip install -r requirements.txt
 ```
 
-## Usage
+### Usage
 
 ```bash
-# Auditoría básica
-python3 vamp_graphql_audit.py --target https://api.ejemplo.com/graphql
+# Basic audit
+python3 vamp_graphql_audit.py --target https://api.example.com/graphql
 
-# Con cabecera de autenticación
+# With authentication header
 python3 vamp_graphql_audit.py \
-  --target https://api.ejemplo.com/graphql \
+  --target https://api.example.com/graphql \
   --header "Authorization: Bearer eyJhbGc..."
 
-# Múltiples cabeceras + exportar informe
+# Multiple headers + export report
 python3 vamp_graphql_audit.py \
-  --target https://api.ejemplo.com/graphql \
+  --target https://api.example.com/graphql \
   --header "Authorization: Bearer TOKEN" \
   --header "X-Tenant-Id: acme" \
-  --json informe.json \
-  --html informe.html
+  --json report.json \
+  --html report.html
 
-# Controlar profundidad del test DoS de nesting
+# Control nesting DoS test depth
 python3 vamp_graphql_audit.py \
-  --target https://api.ejemplo.com/graphql \
+  --target https://api.example.com/graphql \
   --depth 12
 
-# Timeout por petición en segundos (default: 30)
+# Per-request timeout in seconds (default: 30)
 python3 vamp_graphql_audit.py \
-  --target https://api.ejemplo.com/graphql \
+  --target https://api.example.com/graphql \
   --timeout 60
 ```
 
-## Exit Codes
+### Exit Codes
 
-| Code | Significado |
-|------|-------------|
-| `0`  | Auditoría limpia — sin hallazgos CRITICAL ni HIGH |
-| `1`  | Al menos un hallazgo CRITICAL o HIGH |
-| `2`  | Error de ejecución (red, parámetros inválidos, interrupción) |
+| Code | Meaning |
+|------|---------|
+| `0`  | Clean audit — no CRITICAL or HIGH findings |
+| `1`  | At least one CRITICAL or HIGH finding |
+| `2`  | Execution error (network, invalid parameters, interruption) |
 
-## Output
+### Output
 
-- **Console**: banner ASCII + progreso en tiempo real por fase + tabla resumen de findings ordenados por severidad.
-- **JSON** (`--json FILE`): objeto con metadata, resumen por severidad, schema descubierto y array completo de findings.
-- **HTML** (`--html FILE`): informe auto-contenido dark-theme con resumen ejecutivo, tabla de findings con evidencias expandibles y panel del schema descubierto.
+- **Console**: ASCII banner + real-time phase progress + findings summary table sorted by severity.
+- **JSON** (`--json FILE`): object with metadata, severity summary, discovered schema, and full findings array.
+- **HTML** (`--html FILE`): self-contained dark-theme report with executive summary, findings table with expandable evidence, and discovered schema panel.
 
-## Sample Output
+### Sample Output
 
 ```text
-vamp-graphql-audit v1.4.0 · target: https://api.example.com/graphql
+vamp-graphql-audit v1.4.1 · target: https://api.example.com/graphql
 ─────────────────────────────────────────────────────────────────────────
 Phase 1 · Introspection & Recon
   [CRITICAL] GRAPHQL-001  Introspection enabled — full schema exposed
@@ -133,27 +138,27 @@ Phase 6 · Subscription & Mutation Security
 
 ---
 
-## Why vamp-graphql-audit vs. InQL · Clairvoyance · OWASP ZAP GraphQL addon
+### Why vamp-graphql-audit vs. InQL · Clairvoyance · OWASP ZAP GraphQL addon
 
-| Característica | vamp-graphql-audit | InQL | Clairvoyance | ZAP GraphQL addon |
+| Feature | vamp-graphql-audit | InQL | Clairvoyance | ZAP GraphQL addon |
 |---|---|---|---|---|
-| BOLA/IDOR testing automatizado | ✅ | ❌ | ❌ | ❌ |
-| DoS: alias abuse + deep nesting | ✅ | ❌ | ❌ | ⚠️ parcial |
+| Automated BOLA/IDOR testing | ✅ | ❌ | ❌ | ❌ |
+| DoS: alias abuse + deep nesting | ✅ | ❌ | ❌ | ⚠️ partial |
 | Injection testing (SQLi/NoSQLi/SSTI/XSS) | ✅ | ❌ | ❌ | ✅ |
 | Field suggestion leak detection | ✅ | ❌ | ✅ | ❌ |
-| Mutation security (rate-limit, credential flow) | ✅ | ❌ | ❌ | ⚠️ parcial |
-| Informe HTML autónomo dark-theme | ✅ | ❌ | ❌ | ✅ (requiere ZAP) |
-| Sin dependencias externas salvo aiohttp | ✅ | ⚠️ Burp required | ✅ | ❌ requiere ZAP |
-| Exit codes CI/CD | ✅ 0/1/2 | ❌ | ❌ | ❌ |
+| Mutation security (rate-limit, credential flow) | ✅ | ❌ | ❌ | ⚠️ partial |
+| Standalone dark-theme HTML report | ✅ | ❌ | ❌ | ✅ (requires ZAP) |
+| No external dependencies except aiohttp | ✅ | ⚠️ Burp required | ✅ | ❌ requires ZAP |
+| CI/CD exit codes | ✅ 0/1/2 | ❌ | ❌ | ❌ |
 
-- **Cobertura end-to-end en 6 fases**: el único tool que combina reconocimiento, BOLA, DoS, información, inyección y mutaciones en un solo binario sin dependencias externas de tipo proxy/IDE.
-- **BOLA/IDOR automatizado**: InQL y Clairvoyance solo mapean el schema; vamp-graphql-audit fuzz-ea los argumentos de tipo ID en cada query y detecta acceso cruzado de forma autónoma.
-- **Alias abuse y deep nesting**: tests de DoS basados en RFC de GraphQL — sin necesidad de configurar Burp o ZAP.
-- **Diseñado para CI/CD**: exit code 1 en CRITICAL/HIGH bloquea el pipeline antes de desplegar; los otros tools carecen de esta integración nativa.
+- **End-to-end coverage in 6 phases**: the only tool that combines recon, BOLA, DoS, information disclosure, injection, and mutations in a single binary with no external proxy/IDE dependencies.
+- **Automated BOLA/IDOR**: InQL and Clairvoyance only map the schema; vamp-graphql-audit fuzzes ID-type arguments on every query and autonomously detects cross-access.
+- **Alias abuse and deep nesting**: DoS tests based on GraphQL RFC — no need to configure Burp or ZAP.
+- **Designed for CI/CD**: exit code 1 on CRITICAL/HIGH blocks the pipeline before deploy; other tools lack this native integration.
 
 ---
 
-## Check Coverage
+### Check Coverage
 
 | Check ID | Description | Standard | Severity |
 |----------|-------------|----------|----------|
@@ -174,11 +179,149 @@ Phase 6 · Subscription & Mutation Security
 
 ---
 
-## Disclaimer
+### Disclaimer
+
+This tool is exclusively for authorized security audits. Use against systems without written authorization from the owner is illegal. VampSecure Studios assumes no liability for misuse.
+
+---
+
+### Version History
+
+| Version | Main changes |
+|---------|-------------|
+| v1.4.1 | Bilingual README (EN/ES) |
+| v1.4.0 | Initial public release — 6 phases, BOLA/IDOR fuzzing, alias abuse, injection testing, dark-theme HTML report |
+
+---
+
+<a name="español"></a>
+## 🇪🇸 Español
+
+`vamp-graphql-audit` es una herramienta DAST (Dynamic Application Security Testing) especializada en APIs GraphQL. Realiza seis fases de auditoría secuenciales que cubren los vectores de ataque más críticos específicos de GraphQL: abuso de introspección, autorización rota a nivel de objeto (BOLA/IDOR), bypass de rate-limit via abuso de alias, DoS por anidamiento profundo, divulgación de información via sugerencias de campos, testing de inyección (SQLi, NoSQLi, SSTI, XSS) y análisis de seguridad de suscripciones y mutaciones.
+
+Genera informes profesionales en salida de consola rich, JSON y un documento HTML dark-theme autónomo — listo para adjuntar a un engagement de pentest.
+
+### Características
+
+- **Fase 1 — Introspección y reconocimiento**: detecta introspección habilitada (CRITICAL), extrae el schema completo (queries, mutaciones, suscripciones, tipos), identifica nombres de campos sensibles (password, token, key, email…), comprueba mensajes de error detallados con stack traces o rutas de fichero, y hace fingerprint de directivas para identificar el framework.
+- **Fase 2 — Testing de autorización (BOLA/IDOR)**: fuzz-ea argumentos de tipo ID (1, 2, 3, 999, -1, "admin", null…) en cada query con argumento de tipo ID; marca CRITICAL cuando IDs diferentes devuelven datos no nulos sin comprobaciones de propiedad aparentes.
+- **Fase 3 — Rate limiting y DoS**: abuso de alias con 100 aliases en una sola petición HTTP (HIGH), query profundamente anidada con `--depth` configurable (HIGH si > 5s o timeout), abuso de batch query via payload array JSON (HIGH).
+- **Fase 4 — Divulgación de información**: confirma endpoint GraphQL activo via `__typename`, detecta sugerencias de campo que filtran el schema incluso con introspección desactivada (MEDIUM), comprueba mensajes de error detallados en variables, inspecciona directivas no estándar.
+- **Fase 5 — Testing de inyección**: inyección SQL via análisis de respuestas de error, inyección de operadores NoSQL via variables GraphQL, detección SSTI evaluando marcadores `{{7*7}}` en la respuesta, XSS reflejado via argumentos string de GraphQL.
+- **Fase 6 — Seguridad de suscripciones y mutaciones**: comprobación HTTP vs HTTPS, aviso de autenticación en suscripciones, ausencia de rate-limiting en mutaciones de auth (login, register…), mutaciones de cambio de credenciales sin confirmación de contraseña actual, tipos de retorno de token sobre HTTP sin cifrar.
+
+### Instalación
+
+```bash
+pip install vamp-graphql-audit
+# o con Homebrew:
+brew install vampsecure-labs/labs/vamp-graphql-audit
+```
+
+### Requisitos
+
+- Python 3.11+
+- `aiohttp >= 3.9.0`
+- `rich >= 13.7.0`
+
+```bash
+pip install -r requirements.txt
+```
+
+### Uso
+
+```bash
+# Auditoría básica
+python3 vamp_graphql_audit.py --target https://api.ejemplo.com/graphql
+
+# Con cabecera de autenticación
+python3 vamp_graphql_audit.py \
+  --target https://api.ejemplo.com/graphql \
+  --header "Authorization: Bearer eyJhbGc..."
+
+# Múltiples cabeceras + exportar informe
+python3 vamp_graphql_audit.py \
+  --target https://api.ejemplo.com/graphql \
+  --header "Authorization: Bearer TOKEN" \
+  --header "X-Tenant-Id: acme" \
+  --json informe.json \
+  --html informe.html
+
+# Controlar profundidad del test DoS de nesting
+python3 vamp_graphql_audit.py \
+  --target https://api.ejemplo.com/graphql \
+  --depth 12
+
+# Timeout por petición en segundos (default: 30)
+python3 vamp_graphql_audit.py \
+  --target https://api.ejemplo.com/graphql \
+  --timeout 60
+```
+
+### Exit Codes
+
+| Código | Significado |
+|--------|-------------|
+| `0`  | Auditoría limpia — sin hallazgos CRITICAL ni HIGH |
+| `1`  | Al menos un hallazgo CRITICAL o HIGH |
+| `2`  | Error de ejecución (red, parámetros inválidos, interrupción) |
+
+### Salida
+
+- **Consola**: banner ASCII + progreso en tiempo real por fase + tabla resumen de findings ordenados por severidad.
+- **JSON** (`--json FICHERO`): objeto con metadata, resumen por severidad, schema descubierto y array completo de findings.
+- **HTML** (`--html FICHERO`): informe auto-contenido dark-theme con resumen ejecutivo, tabla de findings con evidencias expandibles y panel del schema descubierto.
+
+### Por qué vamp-graphql-audit frente a InQL · Clairvoyance · OWASP ZAP GraphQL addon
+
+| Característica | vamp-graphql-audit | InQL | Clairvoyance | ZAP GraphQL addon |
+|---|---|---|---|---|
+| BOLA/IDOR testing automatizado | ✅ | ❌ | ❌ | ❌ |
+| DoS: alias abuse + deep nesting | ✅ | ❌ | ❌ | ⚠️ parcial |
+| Injection testing (SQLi/NoSQLi/SSTI/XSS) | ✅ | ❌ | ❌ | ✅ |
+| Field suggestion leak detection | ✅ | ❌ | ✅ | ❌ |
+| Mutation security (rate-limit, credential flow) | ✅ | ❌ | ❌ | ⚠️ parcial |
+| Informe HTML autónomo dark-theme | ✅ | ❌ | ❌ | ✅ (requiere ZAP) |
+| Sin dependencias externas salvo aiohttp | ✅ | ⚠️ Burp required | ✅ | ❌ requiere ZAP |
+| Exit codes CI/CD | ✅ 0/1/2 | ❌ | ❌ | ❌ |
+
+- **Cobertura end-to-end en 6 fases**: el único tool que combina reconocimiento, BOLA, DoS, información, inyección y mutaciones en un solo binario sin dependencias externas de tipo proxy/IDE.
+- **BOLA/IDOR automatizado**: InQL y Clairvoyance solo mapean el schema; vamp-graphql-audit fuzz-ea los argumentos de tipo ID en cada query y detecta acceso cruzado de forma autónoma.
+- **Alias abuse y deep nesting**: tests de DoS basados en RFC de GraphQL — sin necesidad de configurar Burp o ZAP.
+- **Diseñado para CI/CD**: exit code 1 en CRITICAL/HIGH bloquea el pipeline antes de desplegar; los otros tools carecen de esta integración nativa.
+
+---
+
+### Cobertura de checks
+
+| Check ID | Description | Standard | Severity |
+|----------|-------------|----------|----------|
+| GRAPHQL-001 | Introspection enabled — full schema exposed to unauthenticated requests | OWASP API9:2023 / GraphQL Security BP §1 | CRITICAL |
+| GRAPHQL-002 | BOLA/IDOR — cross-user data accessible by ID fuzzing | OWASP API1:2023 (BOLA) | CRITICAL |
+| GRAPHQL-003 | Alias abuse — 100 aliases resolved in a single HTTP request | OWASP API4:2023 (Unrestricted Resource Consumption) | HIGH |
+| GRAPHQL-004 | Deep nesting DoS — query depth > 5 levels resolved without timeout | OWASP API4:2023 / GraphQL Security BP §4 | HIGH |
+| GRAPHQL-005 | Batch query abuse — JSON array payload accepted without rate limit | OWASP API4:2023 | HIGH |
+| GRAPHQL-006 | Auth mutation (login/register) without rate-limit enforcement | OWASP API4:2023 / OWASP API2:2023 | HIGH |
+| GRAPHQL-007 | Field suggestion leak — schema enumerable despite introspection disabled | OWASP API9:2023 / GraphQL Security BP §2 | MEDIUM |
+| GRAPHQL-008 | Verbose error messages leak stack traces or file paths | OWASP API9:2023 | MEDIUM |
+| GRAPHQL-009 | SQL injection via GraphQL string argument — error-based detection | OWASP API8:2023 (Security Misconfiguration) | MEDIUM |
+| GRAPHQL-010 | NoSQL operator injection via GraphQL variables ($where, $gt) | OWASP API8:2023 | MEDIUM |
+| GRAPHQL-011 | SSTI detection — `{{7*7}}` marker evaluated in response | OWASP API8:2023 | HIGH |
+| GRAPHQL-012 | Credential-change mutation without current-password confirmation | OWASP API2:2023 (Broken Authentication) | HIGH |
+| GRAPHQL-013 | Token returned over unencrypted HTTP endpoint | OWASP API7:2023 (Server-Side Request Forgery) | HIGH |
+| GRAPHQL-014 | Subscription endpoint active without authentication advisory | GraphQL Security BP §6 | LOW |
+
+---
+
+### Aviso legal
 
 Esta herramienta es exclusiva para auditorías de seguridad autorizadas. El uso contra sistemas sin autorización escrita del propietario es ilegal. VampSecure Studios no asume responsabilidad por usos indebidos.
 
 ---
 
-## Versión
-v1.4.0 — VampSecure Labs Security Research Division
+### Historial de versiones
+
+| Versión | Cambios principales |
+|---------|---------------------|
+| v1.4.1 | README bilingüe (EN/ES) |
+| v1.4.0 | Lanzamiento público inicial — 6 fases, fuzzing BOLA/IDOR, abuso de alias, testing de inyección, informe HTML dark-theme |
